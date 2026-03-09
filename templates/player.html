@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>SlidePilot - Player</title>
+    <link rel="stylesheet" href="/static/style.css" />
+  </head>
+  <body class="player-page" data-deck-id="{{ deck_id }}">
+    <div class="bg-orb orb-a" aria-hidden="true"></div>
+    <div class="bg-orb orb-b" aria-hidden="true"></div>
+    <div class="bg-orb orb-c" aria-hidden="true"></div>
+
+    <main class="app-shell">
+      <section class="card hidden" id="deckPanel">
+        <div class="slide-header">
+          <h2 id="slideTitle">Slide 1</h2>
+          <span id="slideCounter"></span>
+        </div>
+        <div class="voice-indicator" id="voiceIndicator">
+          <span class="voice-dot"></span>
+          <span id="voiceIndicatorText">Wake word idle</span>
+        </div>
+        <div id="status" class="status">Loading prepared presentation...</div>
+        <div class="presentation-grid">
+          <div class="media-pane" id="mediaPane">
+            <img id="slideImage" class="slide-image hidden" alt="Slide preview" />
+            <p id="slideImageHint" class="muted"></p>
+          </div>
+
+          <div class="control-pane">
+            <div class="actions">
+              <button id="homeBtn" type="button">Home</button>
+              <button id="narrateBtn">Start Presentation</button>
+              <button id="fullscreenBtn" type="button">Enter Fullscreen</button>
+              <button id="voiceBtn" type="button">Voice: Off</button>
+            </div>
+
+            <p id="scriptBox" class="script-box"></p>
+
+            <div class="qna hidden" id="qnaSection">
+              <h3>QnA (After Presentation)</h3>
+              <textarea id="questionInput" placeholder="Ask a question about the full presentation"></textarea>
+              <button id="askBtn">Ask</button>
+              <p id="answerBox" class="answer-box"></p>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <script src="https://aka.ms/csspeech/jsbrowserpackageraw"></script>
+    <script src="/static/player.js"></script>
+  </body>
+</html>

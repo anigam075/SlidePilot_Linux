@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>SlidePilot</title>
+    <link rel="stylesheet" href="/static/style.css" />
+  </head>
+  <body>
+    <div class="bg-orb orb-a" aria-hidden="true"></div>
+    <div class="bg-orb orb-b" aria-hidden="true"></div>
+    <div class="bg-orb orb-c" aria-hidden="true"></div>
+    <main class="app-shell">
+      <section class="card intro-card">
+        <p class="brand-pill">AI Presentation Copilot</p>
+        <h1>SlidePilot</h1>
+        <p class="muted">Drop your .pptx and let SlidePilot take the mic.</p>
+
+        <form id="uploadForm">
+          <input type="file" id="pptFile" accept=".pptx" required />
+          <button type="submit">Upload Deck</button>
+        </form>
+
+        <div id="status" class="status"></div>
+      </section>
+    </main>
+
+    <script src="/static/upload.js"></script>
+  </body>
+</html>
