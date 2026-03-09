@@ -5,7 +5,7 @@ SlidePilot is an AI-powered web app that turns PPTX decks into auto-narrated, sl
 ## Features
 - Upload `.pptx` files directly from the browser
 - Extract slide text and speaker notes
-- Render slide images for visual context (Windows + PowerPoint)
+- Render slide images for visual context (Linux: LibreOffice, Windows: PowerPoint/LibreOffice fallback)
 - Generate narration using OpenAI (text + slide image context)
 - Convert narration and answers to speech using Azure AI Speech
 - Auto-play full presentation with:
@@ -19,15 +19,15 @@ SlidePilot is an AI-powered web app that turns PPTX decks into auto-narrated, sl
 - LLM/Vision: OpenAI API
 - TTS: Azure AI Speech
 - PPT parsing: `python-pptx`
-- Slide rendering: PowerPoint COM automation (`comtypes` / `pywin32`)
+- Slide rendering: LibreOffice headless + PDF rendering (`pypdfium2`)
 - Storage: local disk (`data/`)
 
 ## Prerequisites
 - Python 3.10+ (project tested with Python 3.12)
-- Windows machine (for slide image rendering)
-- Microsoft PowerPoint installed locally
 - OpenAI API key
 - Azure AI Speech key + region
+- For Linux slide rendering: LibreOffice (`soffice`) installed
+- For Windows PowerPoint rendering fallback: Microsoft PowerPoint installed locally
 
 ## Environment Variables
 Create a `.env` file:
@@ -39,9 +39,20 @@ OPENAI_MODEL=gpt-4o-mini
 AZURE_SPEECH_KEY=
 AZURE_SPEECH_REGION=
 AZURE_SPEECH_VOICE=en-US-JennyNeural
+
+# Optional slide rendering overrides
+LIBREOFFICE_BIN=soffice
+SLIDE_RENDER_TIMEOUT=180
 ```
 
-## Installation
+## Installation (Linux/macOS)
+```bash
+python -m venv env
+source env/bin/activate
+pip install -r requirements.txt
+```
+
+## Installation (Windows)
 ```powershell
 python -m venv env
 .\env\Scripts\activate
@@ -49,7 +60,7 @@ pip install -r requirements.txt
 ```
 
 ## Run
-```powershell
+```bash
 uvicorn app.main:app --reload
 ```
 
@@ -74,5 +85,5 @@ Open: `http://127.0.0.1:8000`
 
 ## Notes
 - `.ppt` is not supported directly (upload `.pptx`).
-- If PowerPoint image export fails, presentation still works with text/notes.
-- Runtime-generated files are saved under `data/`."# SlidePilot" 
+- If slide image export fails, presentation still works with text/notes.
+- Runtime-generated files are saved under `data/`.

@@ -6,5 +6,7 @@ openai==1.99.9
 azure-cognitiveservices-speech==1.45.0
 python-dotenv==1.1.1
 jinja2==3.1.6
-pywin32==310
-comtypes==1.4.13
+pypdfium2==4.30.0
+Pillow==11.3.0
+pywin32==310; platform_system == "Windows"
+comtypes==1.4.13; platform_system == "Windows"
