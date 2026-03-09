@@ -283,6 +283,48 @@ button:disabled {
   min-width: 0;
 }
 
+.media-pane {
+  position: relative;
+  padding: 8px 46px 4px;
+}
+
+.slide-nav-btn {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 38px;
+  height: 38px;
+  border-radius: 999px;
+  border: 1px solid rgba(0, 95, 214, 0.24);
+  background: rgba(255, 255, 255, 0.92);
+  color: #145783;
+  font-size: 1.15rem;
+  font-weight: 900;
+  line-height: 1;
+  padding: 0;
+  box-shadow: 0 8px 18px rgba(8, 45, 92, 0.16);
+  z-index: 2;
+}
+
+.slide-nav-btn.prev {
+  left: 0;
+}
+
+.slide-nav-btn.next {
+  right: 0;
+}
+
+.slide-nav-btn:hover:not(:disabled) {
+  transform: translateY(-50%) scale(1.05);
+  box-shadow: 0 10px 20px rgba(8, 45, 92, 0.24);
+}
+
+.slide-nav-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
 .control-pane {
   display: flex;
   flex-direction: column;
@@ -303,7 +345,7 @@ button:disabled {
   width: 100%;
   border: 1px solid var(--line);
   border-radius: 16px;
-  margin: 8px 0 4px;
+  margin: 0;
   background: rgba(255, 255, 255, 0.8);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.95), 0 6px 18px rgba(13, 62, 102, 0.08);
   max-height: 78vh;
@@ -438,6 +480,16 @@ button:disabled {
     grid-template-columns: 1fr;
   }
 
+  .media-pane {
+    padding: 8px 38px 4px;
+  }
+
+  .slide-nav-btn {
+    width: 34px;
+    height: 34px;
+    font-size: 1rem;
+  }
+
   .slide-image {
     max-height: 45vh;
   }
@@ -446,3 +498,4 @@ button:disabled {
     max-height: none;
   }
 }
+

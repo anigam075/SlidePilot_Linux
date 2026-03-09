@@ -17,6 +17,8 @@ const homeBtn = document.getElementById("homeBtn");
 const voiceBtn = document.getElementById("voiceBtn");
 const askBtn = document.getElementById("askBtn");
 const questionInput = document.getElementById("questionInput");
+const prevSlideBtn = document.getElementById("prevSlideBtn");
+const nextSlideBtn = document.getElementById("nextSlideBtn");
 const audioPlayer = new Audio();
 
 const deckId = document.body.dataset.deckId;
@@ -29,6 +31,7 @@ let hasCompletedPresentation = false;
 let recognizer = null;
 let voiceEnabled = false;
 let wakeIndicatorTimeout = null;
+let playbackToken = 0;
 
 function setStatus(message, isError = false) {
   statusBox.textContent = message;
@@ -37,6 +40,57 @@ function setStatus(message, isError = false) {
 
 function currentSlide() {
   return deck?.slides?.[currentSlideIndex] || null;
+}
+
+function setNavState() {
+  const hasDeck = Boolean(deck && deck.total_slides);
+  prevSlideBtn.disabled = !hasDeck || currentSlideIndex <= 0;
+  nextSlideBtn.disabled = !hasDeck || currentSlideIndex >= deck.total_slides - 1;
+}
+
+function interruptCurrentPlayback() {
+  playbackToken += 1;
+  audioPlayer.pause();
+}
+
+async function playCurrentSlideAudioManual() {
+  const slide = currentSlide();
+  if (!slide?.audio_url) {
+    setStatus("Narration for this slide is not ready yet.", true);
+    return;
+  }
+  audioPlayer.src = slide.audio_url;
+  try {
+    await audioPlayer.play();
+    setStatus(`Playing slide ${slide.slide_number} narration...`);
+  } catch {
+    setStatus("Unable to play this slide audio.", true);
+  }
+}
+
+async function navigateSlide(direction) {
+  if (!deck) return;
+
+  const targetIndex = Math.max(0, Math.min(deck.total_slides - 1, currentSlideIndex + direction));
+  if (targetIndex === currentSlideIndex) return;
+
+  const wasAutoRunning = autoPresentationRunning;
+  const shouldKeepNarration = !audioPlayer.paused;
+
+  interruptCurrentPlayback();
+  currentSlideIndex = targetIndex;
+  renderSlide();
+
+  // If autoplay is active, the autoplay loop will resume from this slide.
+  if (wasAutoRunning) {
+    isPaused = false;
+    narrateBtn.textContent = "Pause";
+    return;
+  }
+
+  if (shouldKeepNarration) {
+    await playCurrentSlideAudioManual();
+  }
 }
 
 function renderSlide() {
@@ -57,6 +111,7 @@ function renderSlide() {
   answerBox.textContent = "";
   questionInput.value = "";
   audioPlayer.src = slide.audio_url || "";
+  setNavState();
 }
 
 function setPresentationButtonIdle() {
@@ -66,6 +121,7 @@ function setPresentationButtonIdle() {
   narrateBtn.textContent = hasCompletedPresentation
     ? "Replay Presentation"
     : "Start Presentation";
+  setNavState();
 }
 
 function updateFullscreenButton() {
@@ -148,6 +204,35 @@ async function handleVoiceCommand(rawText) {
     }
     return;
   }
+  if (command.includes("go to previous slide and play") || command.includes("previous slide and play")) {
+    if (currentSlideIndex <= 0) {
+      setStatus("Already at the first slide.", true);
+      return;
+    }
+    await navigateSlide(-1);
+    await playCurrentSlideAudioManual();
+    return;
+  }
+  if (command === "next slide" || command.includes("go to next slide")) {
+    await navigateSlide(1);
+    return;
+  }
+  if (command === "previous slide" || command.includes("move to previous slide")) {
+    await navigateSlide(-1);
+    return;
+  }
+  if (command.includes("replay slide")) {
+    if (autoPresentationRunning) {
+      isPaused = false;
+      narrateBtn.textContent = "Pause";
+      setStatus("Replaying current slide...");
+      interruptCurrentPlayback();
+      return;
+    }
+    interruptCurrentPlayback();
+    await playCurrentSlideAudioManual();
+    return;
+  }
   if (command === "pause" || command.includes("pause")) {
     if (autoPresentationRunning && !isPaused) {
       narrateBtn.click();
@@ -212,17 +297,24 @@ async function stopVoiceRecognition() {
   setStatus("Voice control stopped.");
 }
 
-function waitForAudioToEnd() {
+function waitForAudioToEnd(startToken) {
   return new Promise((resolve, reject) => {
     const onEnded = () => {
       cleanup();
-      resolve();
+      resolve("ended");
     };
     const onError = () => {
       cleanup();
       reject(new Error("Audio playback failed."));
     };
+    const interruptWatcher = setInterval(() => {
+      if (startToken !== playbackToken) {
+        cleanup();
+        resolve("interrupted");
+      }
+    }, 80);
     const cleanup = () => {
+      clearInterval(interruptWatcher);
       audioPlayer.removeEventListener("ended", onEnded);
       audioPlayer.removeEventListener("error", onError);
     };
@@ -251,14 +343,15 @@ async function ensurePreparedDeck() {
 
 async function playCurrentSlideAudioAuto() {
   const slide = currentSlide();
-  if (!deck || !slide) return;
+  if (!deck || !slide) return "interrupted";
   if (!slide.audio_url) {
     throw new Error(`Missing narration audio for slide ${slide.slide_number}.`);
   }
   renderSlide();
   setStatus(`Playing slide ${slide.slide_number} narration...`);
+  const startToken = playbackToken;
   await audioPlayer.play();
-  await waitForAudioToEnd();
+  return await waitForAudioToEnd(startToken);
 }
 
 async function loadDeck() {
@@ -329,8 +422,17 @@ narrateBtn.addEventListener("click", async () => {
     narrateBtn.disabled = false;
     narrateBtn.textContent = "Pause";
     while (autoPresentationRunning && deck && currentSlideIndex < deck.total_slides) {
-      await playCurrentSlideAudioAuto();
+      const playbackState = await playCurrentSlideAudioAuto();
       if (!autoPresentationRunning) return;
+
+      if (playbackState === "interrupted") {
+        continue;
+      }
+
+      if (playbackState !== "ended") {
+        return;
+      }
+
       if (currentSlideIndex < deck.total_slides - 1) {
         currentSlideIndex += 1;
         renderSlide();
@@ -347,7 +449,7 @@ narrateBtn.addEventListener("click", async () => {
     if (deck.closing_audio_url) {
       audioPlayer.src = deck.closing_audio_url;
       await audioPlayer.play();
-      await waitForAudioToEnd();
+      await waitForAudioToEnd(playbackToken);
     }
     setPresentationButtonIdle();
     qnaSection.classList.remove("hidden");
@@ -377,8 +479,30 @@ fullscreenBtn.addEventListener("click", async () => {
 document.addEventListener("fullscreenchange", updateFullscreenButton);
 
 homeBtn.addEventListener("click", () => {
-  audioPlayer.pause();
+  interruptCurrentPlayback();
   window.location.href = "/";
+});
+
+prevSlideBtn.addEventListener("click", async () => {
+  await navigateSlide(-1);
+});
+
+nextSlideBtn.addEventListener("click", async () => {
+  await navigateSlide(1);
+});
+
+document.addEventListener("keydown", async (event) => {
+  if (!deck) return;
+  const targetTag = (event.target?.tagName || "").toLowerCase();
+  if (targetTag === "input" || targetTag === "textarea") return;
+
+  if (event.key === "ArrowLeft") {
+    event.preventDefault();
+    await navigateSlide(-1);
+  } else if (event.key === "ArrowRight") {
+    event.preventDefault();
+    await navigateSlide(1);
+  }
 });
 
 voiceBtn.addEventListener("click", async () => {
@@ -437,3 +561,12 @@ askBtn.addEventListener("click", async () => {
 updateFullscreenButton();
 setVoiceButton();
 loadDeck();
+
+
+
+
+
+
+
+
+

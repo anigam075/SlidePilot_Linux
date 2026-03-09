@@ -1,0 +1,62 @@
+SlidePilot Voice Commands Cheat Sheet
+====================================
+
+Wake phrase format
+------------------
+Start every command with: "Slide pilot"
+Examples:
+- Slide pilot, start presentation
+- Slide pilot next slide
+- Slide pilot replay slide
+
+General controls
+----------------
+1) Home
+- "Slide pilot, home"
+- "Slide pilot, go to home"
+
+2) Start presentation
+- "Slide pilot, start presentation"
+
+3) Replay full presentation
+- "Slide pilot, replay presentation"
+
+Slide navigation
+----------------
+4) Next slide
+- "Slide pilot, next slide"
+- "Slide pilot, go to next slide"
+
+5) Previous slide
+- "Slide pilot, previous slide"
+- "Slide pilot, move to previous slide"
+
+6) Previous slide and play
+- "Slide pilot, previous slide and play"
+- "Slide pilot, go to previous slide and play"
+
+Narration playback
+------------------
+7) Pause
+- "Slide pilot, pause"
+- Any command containing the word "pause" is treated as pause.
+
+8) Resume
+- "Slide pilot, resume"
+- "Slide pilot, play"
+- Any command containing the word "resume" is treated as resume.
+
+9) Replay current slide
+- "Slide pilot, replay slide"
+
+QnA behavior
+------------
+10) Ask question by voice
+- Any unrecognized command after "Slide pilot" is treated as a QnA question.
+- This works only after QnA section is open (post-presentation).
+
+Notes
+-----
+- Voice recognition language is English (en-US).
+- Matching is case-insensitive.
+- Punctuation like comma, colon, dash after wake phrase is allowed.

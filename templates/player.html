@@ -24,7 +24,13 @@
         <div id="status" class="status">Loading prepared presentation...</div>
         <div class="presentation-grid">
           <div class="media-pane" id="mediaPane">
+            <button id="prevSlideBtn" class="slide-nav-btn prev" type="button" aria-label="Previous slide">
+              &lt;
+            </button>
             <img id="slideImage" class="slide-image hidden" alt="Slide preview" />
+            <button id="nextSlideBtn" class="slide-nav-btn next" type="button" aria-label="Next slide">
+              &gt;
+            </button>
             <p id="slideImageHint" class="muted"></p>
           </div>
 
@@ -53,3 +59,4 @@
     <script src="/static/player.js"></script>
   </body>
 </html>
+
