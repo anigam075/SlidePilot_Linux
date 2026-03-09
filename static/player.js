@@ -4,7 +4,9 @@ const slideCounter = document.getElementById("slideCounter");
 const slideImage = document.getElementById("slideImage");
 const slideImageHint = document.getElementById("slideImageHint");
 const scriptBox = document.getElementById("scriptBox");
-const answerBox = document.getElementById("answerBox");
+const chatFeed = document.getElementById("chatFeed");
+const qnaWidget = document.getElementById("qnaWidget");
+const qnaToggleBtn = document.getElementById("qnaToggleBtn");
 const qnaSection = document.getElementById("qnaSection");
 const statusBox = document.getElementById("status");
 const mediaPane = document.getElementById("mediaPane");
@@ -32,12 +34,42 @@ let recognizer = null;
 let voiceEnabled = false;
 let wakeIndicatorTimeout = null;
 let playbackToken = 0;
+let qnaAvailable = false;
 
 function setStatus(message, isError = false) {
   statusBox.textContent = message;
   statusBox.style.color = isError ? "#b00020" : "#2f5976";
 }
 
+function appendChatMessage(text, role) {
+  if (!chatFeed || !text) return;
+  const bubble = document.createElement("div");
+  bubble.className = `chat-msg ${role === "user" ? "user" : "assistant"}`;
+  bubble.textContent = text;
+  chatFeed.appendChild(bubble);
+  chatFeed.scrollTop = chatFeed.scrollHeight;
+}
+
+function clearChat() {
+  if (!chatFeed) return;
+  chatFeed.innerHTML = "";
+}
+
+function setQnAAvailability(enabled) {
+  qnaAvailable = enabled;
+  qnaWidget.classList.toggle("hidden", !enabled);
+  if (!enabled) {
+    qnaSection.classList.add("hidden");
+    qnaToggleBtn.textContent = "Chat";
+  }
+}
+
+function toggleQnA(open) {
+  if (!qnaAvailable) return;
+  const shouldOpen = typeof open === "boolean" ? open : qnaSection.classList.contains("hidden");
+  qnaSection.classList.toggle("hidden", !shouldOpen);
+  qnaToggleBtn.textContent = shouldOpen ? "Close" : "Chat";
+}
 function currentSlide() {
   return deck?.slides?.[currentSlideIndex] || null;
 }
@@ -108,7 +140,6 @@ function renderSlide() {
     slideImageHint.textContent = "Slide preview image not available for this slide.";
   }
   scriptBox.textContent = slide.script || "";
-  answerBox.textContent = "";
   questionInput.value = "";
   audioPlayer.src = slide.audio_url || "";
   setNavState();
@@ -204,6 +235,24 @@ async function handleVoiceCommand(rawText) {
     }
     return;
   }
+  if (command.includes("open chat") || command.includes("open qna") || command.includes("open q and a")) {
+    if (!qnaAvailable) {
+      setStatus("QnA opens after presentation finishes.", true);
+      return;
+    }
+    toggleQnA(true);
+    setStatus("Chat opened.");
+    return;
+  }
+  if (command.includes("close chat") || command.includes("hide chat") || command.includes("close qna")) {
+    if (!qnaAvailable) {
+      setStatus("QnA opens after presentation finishes.", true);
+      return;
+    }
+    toggleQnA(false);
+    setStatus("Chat closed.");
+    return;
+  }
   if (command.includes("go to previous slide and play") || command.includes("previous slide and play")) {
     if (currentSlideIndex <= 0) {
       setStatus("Already at the first slide.", true);
@@ -247,9 +296,12 @@ async function handleVoiceCommand(rawText) {
   }
 
   // Unmatched command after wake phrase is treated as a QnA question.
-  if (qnaSection.classList.contains("hidden")) {
+  if (!qnaAvailable) {
     setStatus("Voice question received. QnA opens after presentation finishes.", true);
     return;
+  }
+  if (qnaSection.classList.contains("hidden")) {
+    toggleQnA(true);
   }
   questionInput.value = wakeMatch[1].trim();
   askBtn.click();
@@ -371,7 +423,7 @@ async function loadDeck() {
     isPaused = false;
     hasCompletedPresentation = false;
     deckPanel.classList.remove("hidden");
-    qnaSection.classList.add("hidden");
+    setQnAAvailability(false);
     setPresentationButtonIdle();
     renderSlide();
     if (deck.render_warning) {
@@ -412,8 +464,8 @@ narrateBtn.addEventListener("click", async () => {
     }
 
     narrateBtn.disabled = true;
-    qnaSection.classList.add("hidden");
-    answerBox.textContent = "";
+    setQnAAvailability(false);
+    clearChat();
     await ensurePreparedDeck();
 
     autoPresentationRunning = true;
@@ -452,8 +504,9 @@ narrateBtn.addEventListener("click", async () => {
       await waitForAudioToEnd(playbackToken);
     }
     setPresentationButtonIdle();
-    qnaSection.classList.remove("hidden");
-    setStatus("Narration complete. Ask anything in the QnA zone.");
+    setQnAAvailability(true);
+    toggleQnA(false);
+    setStatus("Narration complete. Use the Chat button for QnA.");
   } catch (error) {
     setPresentationButtonIdle();
     setStatus(error.message || "Presentation failed", true);
@@ -522,19 +575,24 @@ voiceBtn.addEventListener("click", async () => {
 askBtn.addEventListener("click", async () => {
   const question = questionInput.value.trim();
   if (!deck) return;
-  if (qnaSection.classList.contains("hidden")) {
+  if (!qnaAvailable) {
     setStatus("QnA opens after presentation finishes.", true);
     return;
+  }
+  if (qnaSection.classList.contains("hidden")) {
+    toggleQnA(true);
   }
   if (!question) {
     setStatus("Enter a question first.", true);
     return;
   }
 
+  appendChatMessage(question, "user");
+  questionInput.value = "";
+
   try {
     setStatus("Answering your presentation question...");
     askBtn.disabled = true;
-    answerBox.textContent = "";
     const response = await fetch(`/api/decks/${deck.deck_id}/qna`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -545,7 +603,7 @@ askBtn.addEventListener("click", async () => {
       throw new Error(err.detail || "QnA failed");
     }
     const payload = await response.json();
-    answerBox.textContent = payload.answer;
+    appendChatMessage(payload.answer || "I could not generate an answer.", "assistant");
     if (payload.audio_url) {
       audioPlayer.src = payload.audio_url;
       audioPlayer.play();
@@ -553,14 +611,27 @@ askBtn.addEventListener("click", async () => {
     setStatus("Answer generated.");
   } catch (error) {
     setStatus(error.message || "QnA failed", true);
+    appendChatMessage("I could not answer that right now. Please try again.", "assistant");
   } finally {
     askBtn.disabled = false;
   }
 });
 
+qnaToggleBtn.addEventListener("click", () => {
+  toggleQnA();
+});
+
 updateFullscreenButton();
 setVoiceButton();
+setQnAAvailability(false);
 loadDeck();
+
+
+
+
+
+
+
 
 
 

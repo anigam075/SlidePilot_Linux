@@ -7,7 +7,8 @@ Start every command with: "Slide pilot"
 Examples:
 - Slide pilot, start presentation
 - Slide pilot next slide
-- Slide pilot replay slide
+- Slide pilot, open chat
+- Slide pilot, replay slide
 
 General controls
 ----------------
@@ -48,15 +49,30 @@ Narration playback
 
 9) Replay current slide
 - "Slide pilot, replay slide"
+- If autoplay is active, it replays current slide and autoplay continues.
 
-QnA behavior
-------------
-10) Ask question by voice
+QnA chat widget controls
+------------------------
+10) Open chat widget
+- "Slide pilot, open chat"
+- "Slide pilot, open qna"
+- "Slide pilot, open q and a"
+
+11) Close chat widget
+- "Slide pilot, close chat"
+- "Slide pilot, hide chat"
+- "Slide pilot, close qna"
+
+QnA asking behavior
+-------------------
+12) Ask by voice
 - Any unrecognized command after "Slide pilot" is treated as a QnA question.
-- This works only after QnA section is open (post-presentation).
+- Example: "Slide pilot what were the main revenue trends?"
+- If QnA is available and chat is closed, it auto-opens chat and sends the question.
+- If QnA is not available yet, SlidePilot prompts that QnA opens after presentation finishes.
 
 Notes
 -----
 - Voice recognition language is English (en-US).
 - Matching is case-insensitive.
-- Punctuation like comma, colon, dash after wake phrase is allowed.
+- Punctuation after wake phrase (comma/colon/dash) is allowed.

@@ -43,20 +43,27 @@
             </div>
 
             <p id="scriptBox" class="script-box"></p>
-
-            <div class="qna hidden" id="qnaSection">
-              <h3>QnA (After Presentation)</h3>
-              <textarea id="questionInput" placeholder="Ask a question about the full presentation"></textarea>
-              <button id="askBtn">Ask</button>
-              <p id="answerBox" class="answer-box"></p>
-            </div>
           </div>
         </div>
       </section>
-    </main>
+    
+    <div class="qna-widget hidden" id="qnaWidget">
+      <button id="qnaToggleBtn" class="qna-toggle" type="button" aria-label="Open QnA chat">Chat</button>
+      <div class="qna qna-panel hidden" id="qnaSection">
+        <h3>QnA</h3>
+        <div id="chatFeed" class="chat-feed" aria-live="polite"></div>
+        <div class="chat-input-row">
+          <textarea id="questionInput" placeholder="Ask a question about the full presentation"></textarea>
+          <button id="askBtn" type="button">Send</button>
+        </div>
+      </div>
+    </div>
+  </main>
 
     <script src="https://aka.ms/csspeech/jsbrowserpackageraw"></script>
     <script src="/static/player.js"></script>
   </body>
 </html>
+
+
 

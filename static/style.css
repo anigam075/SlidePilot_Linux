@@ -369,8 +369,7 @@ button:disabled {
   min-width: 0;
 }
 
-.script-box,
-.answer-box {
+.script-box {
   border: 1px solid var(--line);
   border-radius: 14px;
   padding: 12px;
@@ -378,9 +377,6 @@ button:disabled {
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9);
   min-height: 58px;
   white-space: pre-wrap;
-}
-
-.script-box {
   margin-top: 0;
   max-height: 18vh;
   overflow: auto;
@@ -403,16 +399,80 @@ button:disabled {
   max-height: 61vh;
 }
 
+.qna-widget {
+  position: fixed;
+  right: 18px;
+  bottom: 18px;
+  z-index: 40;
+}
+
+.qna-toggle {
+  border-radius: 999px;
+  padding: 10px 16px;
+  font-weight: 800;
+  background: linear-gradient(135deg, #0070f3, #00c4b7);
+  box-shadow: 0 12px 24px rgba(8, 45, 92, 0.24);
+}
+
 .qna {
-  margin-top: 0;
-  padding-top: 12px;
-  border-top: 1px solid var(--line);
+  margin-top: 10px;
+}
+
+.qna-panel {
+  width: min(380px, 92vw);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 20px 48px rgba(8, 45, 92, 0.2);
+  padding: 12px;
+}
+
+.chat-feed {
+  margin-top: 8px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.9);
+  min-height: 220px;
+  max-height: 320px;
+  overflow-y: auto;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.chat-msg {
+  max-width: 88%;
+  padding: 10px 12px;
+  border-radius: 12px;
+  white-space: pre-wrap;
+  line-height: 1.45;
+}
+
+.chat-msg.user {
+  align-self: flex-end;
+  background: linear-gradient(135deg, rgba(0, 112, 243, 0.14), rgba(0, 196, 183, 0.15));
+  border: 1px solid rgba(0, 112, 243, 0.22);
+}
+
+.chat-msg.assistant {
+  align-self: flex-start;
+  background: rgba(243, 249, 255, 0.95);
+  border: 1px solid rgba(90, 114, 137, 0.2);
+}
+
+.chat-input-row {
+  margin-top: 10px;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 10px;
+  align-items: end;
 }
 
 .qna textarea {
   width: 100%;
-  min-height: 96px;
-  margin: 10px 0;
+  min-height: 64px;
+  margin: 0;
   border: 1px solid var(--line);
   border-radius: 12px;
   padding: 12px;
@@ -494,8 +554,31 @@ button:disabled {
     max-height: 45vh;
   }
 
+  .qna-widget {
+    right: 10px;
+    bottom: 10px;
+  }
+
+  .qna-panel {
+    width: 92vw;
+  }
+
+  .chat-feed {
+    max-height: 220px;
+  }
+
+  .chat-input-row {
+    grid-template-columns: 1fr;
+  }
+
+  .chat-input-row button {
+    width: 100%;
+  }
+
   .script-box {
     max-height: none;
   }
 }
+
+
 
