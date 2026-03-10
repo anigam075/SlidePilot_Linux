@@ -19,53 +19,57 @@ General controls
 2) Start presentation
 - "Slide pilot, start presentation"
 
-3) Replay full presentation
+3) Start narration (fallback)
+- "Slide pilot, start narration"
+- Starts autoplay from current slide and continues upcoming slides.
+
+4) Replay full presentation
 - "Slide pilot, replay presentation"
 
 Slide navigation
 ----------------
-4) Next slide
+7) Next slide
 - "Slide pilot, next slide"
 - "Slide pilot, go to next slide"
 
-5) Previous slide
+8) Previous slide
 - "Slide pilot, previous slide"
 - "Slide pilot, move to previous slide"
 
-6) Previous slide and play
+9) Previous slide and play
 - "Slide pilot, previous slide and play"
 - "Slide pilot, go to previous slide and play"
 
 Narration playback
 ------------------
-7) Pause
+10) Pause
 - "Slide pilot, pause"
 - Any command containing the word "pause" is treated as pause.
 
-8) Resume
+11) Resume
 - "Slide pilot, resume"
 - "Slide pilot, play"
 - Any command containing the word "resume" is treated as resume.
 
-9) Replay current slide
+12) Replay current slide
 - "Slide pilot, replay slide"
 - If autoplay is active, it replays current slide and autoplay continues.
 
 QnA chat widget controls
 ------------------------
-10) Open chat widget
+13) Open chat widget
 - "Slide pilot, open chat"
 - "Slide pilot, open qna"
 - "Slide pilot, open q and a"
 
-11) Close chat widget
+14) Close chat widget
 - "Slide pilot, close chat"
 - "Slide pilot, hide chat"
 - "Slide pilot, close qna"
 
 QnA asking behavior
 -------------------
-12) Ask by voice
+15) Ask by voice
 - Any unrecognized command after "Slide pilot" is treated as a QnA question.
 - Example: "Slide pilot what were the main revenue trends?"
 - If QnA is available and chat is closed, it auto-opens chat and sends the question.

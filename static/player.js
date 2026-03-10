@@ -218,6 +218,12 @@ async function handleVoiceCommand(rawText) {
     narrateBtn.click();
     return;
   }
+  if (command.includes("start narration")) {
+    // Fallback command: resume autoplay from the current slide.
+    hasCompletedPresentation = false;
+    narrateBtn.click();
+    return;
+  }
   if (command.includes("replay presentation")) {
     hasCompletedPresentation = true;
     narrateBtn.click();
@@ -625,6 +631,7 @@ updateFullscreenButton();
 setVoiceButton();
 setQnAAvailability(false);
 loadDeck();
+
 
 
 
