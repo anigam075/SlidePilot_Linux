@@ -395,11 +395,27 @@ async function ensurePreparedDeck() {
   }
   const prepared = await response.json();
   deck.slides = prepared.slides || deck.slides;
-  deck.closing_statement = prepared.closing_statement;
-  deck.closing_audio_url = prepared.closing_audio_url;
+  deck.intro_summary = prepared.intro_summary || deck.intro_summary;
+  deck.intro_audio_url = prepared.intro_audio_url || deck.intro_audio_url;
+  deck.conclusion_summary = prepared.conclusion_summary || deck.conclusion_summary;
+  deck.conclusion_audio_url = prepared.conclusion_audio_url || deck.conclusion_audio_url;
+  deck.closing_statement = prepared.closing_statement || deck.closing_statement;
+  deck.closing_audio_url = prepared.closing_audio_url || deck.closing_audio_url;
 }
 
-async function playCurrentSlideAudioAuto() {
+
+async function playNarrationClip(url, statusText) {
+  if (!url) {
+    return "ended";
+  }
+  if (statusText) {
+    setStatus(statusText);
+  }
+  const startToken = playbackToken;
+  audioPlayer.src = url;
+  await audioPlayer.play();
+  return await waitForAudioToEnd(startToken);
+}async function playCurrentSlideAudioAuto() {
   const slide = currentSlide();
   if (!deck || !slide) return "interrupted";
   if (!slide.audio_url) {
@@ -479,6 +495,15 @@ narrateBtn.addEventListener("click", async () => {
     isPaused = false;
     narrateBtn.disabled = false;
     narrateBtn.textContent = "Pause";
+
+    if (currentSlideIndex === 0 && deck.intro_audio_url) {
+      const introState = await playNarrationClip(deck.intro_audio_url, deck.intro_summary || "Here is a quick overview of this presentation.");
+      if (!autoPresentationRunning) return;
+      if (introState !== "ended" && introState !== "interrupted") {
+        return;
+      }
+    }
+
     while (autoPresentationRunning && deck && currentSlideIndex < deck.total_slides) {
       const playbackState = await playCurrentSlideAudioAuto();
       if (!autoPresentationRunning) return;
@@ -500,14 +525,15 @@ narrateBtn.addEventListener("click", async () => {
     }
 
     hasCompletedPresentation = true;
-    const closingStatement =
+    const conclusionSummary =
+      deck.conclusion_summary ||
       deck.closing_statement ||
-      "If you have any question, feel free to drop your query in the QnA section. I will be happy to answer.";
-    setStatus(closingStatement);
-    if (deck.closing_audio_url) {
-      audioPlayer.src = deck.closing_audio_url;
-      await audioPlayer.play();
-      await waitForAudioToEnd(playbackToken);
+      "That concludes the presentation. If you have any question, feel free to ask in the QnA section.";
+    const conclusionAudioUrl = deck.conclusion_audio_url || deck.closing_audio_url;
+    const conclusionState = await playNarrationClip(conclusionAudioUrl, conclusionSummary);
+    if (!autoPresentationRunning) return;
+    if (conclusionState !== "ended" && conclusionState !== "interrupted") {
+      return;
     }
     setPresentationButtonIdle();
     setQnAAvailability(true);
@@ -631,6 +657,7 @@ updateFullscreenButton();
 setVoiceButton();
 setQnAAvailability(false);
 loadDeck();
+
 
 
 

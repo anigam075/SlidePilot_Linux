@@ -42,10 +42,6 @@ storage = StorageService(settings.storage_root)
 llm_service = LLMService()
 speech_service = SpeechService()
 logger = logging.getLogger("slidepilot.voice")
-CLOSING_STATEMENT = (
-    "If you have any question, feel free to drop your query in the QnA section. "
-    "I will be happy to answer."
-)
 
 
 def _load_deck_or_404(deck_id: str) -> dict:
@@ -69,6 +65,18 @@ def _slide_image_path(deck_id: str, slide: dict) -> Path | None:
     filename = image_url.rstrip("/").split("/")[-1]
     path = storage.images_dir / deck_id / filename
     return path if path.exists() else None
+
+
+def _deck_intro_audio_path(deck_id: str) -> Path:
+    deck_audio_dir = storage.audio_dir / deck_id
+    deck_audio_dir.mkdir(parents=True, exist_ok=True)
+    return deck_audio_dir / "intro_summary.wav"
+
+
+def _deck_conclusion_audio_path(deck_id: str) -> Path:
+    deck_audio_dir = storage.audio_dir / deck_id
+    deck_audio_dir.mkdir(parents=True, exist_ok=True)
+    return deck_audio_dir / "conclusion_summary.wav"
 
 
 @app.get("/")
@@ -138,16 +146,20 @@ async def get_deck(deck_id: str):
 async def prepare_deck_narration(deck_id: str):
     deck = _load_deck_or_404(deck_id)
 
-    for slide in deck["slides"]:
+    slides = deck["slides"]
+    for idx, slide in enumerate(slides):
         slide_number = slide["slide_number"]
         if not slide.get("script"):
             image_path = _slide_image_path(deck_id, slide)
+            previous_slide = slides[idx - 1] if idx > 0 else None
             slide["script"] = await run_in_threadpool(
                 llm_service.build_slide_script,
                 slide["title"],
                 slide["content_text"],
                 slide["notes_text"],
                 image_path,
+                previous_slide["title"] if previous_slide else None,
+                previous_slide.get("script") if previous_slide else None,
             )
 
         audio_path = storage.slide_audio_path(deck_id, slide_number)
@@ -155,22 +167,38 @@ async def prepare_deck_narration(deck_id: str):
             await run_in_threadpool(speech_service.synthesize_to_file, slide["script"], audio_path)
         slide["audio_url"] = f"/api/audio/{deck_id}/{audio_path.name}"
 
-    closing_audio_path = storage.closing_audio_path(deck_id)
-    if not closing_audio_path.exists():
+    if not deck.get("intro_summary"):
+        deck["intro_summary"] = await run_in_threadpool(llm_service.build_deck_intro_summary, slides)
+    intro_audio_path = _deck_intro_audio_path(deck_id)
+    if not intro_audio_path.exists():
+        await run_in_threadpool(speech_service.synthesize_to_file, deck["intro_summary"], intro_audio_path)
+    deck["intro_audio_url"] = f"/api/audio/{deck_id}/{intro_audio_path.name}"
+
+    if not deck.get("conclusion_summary"):
+        deck["conclusion_summary"] = await run_in_threadpool(llm_service.build_deck_conclusion_summary, slides)
+    conclusion_audio_path = _deck_conclusion_audio_path(deck_id)
+    if not conclusion_audio_path.exists():
         await run_in_threadpool(
             speech_service.synthesize_to_file,
-            CLOSING_STATEMENT,
-            closing_audio_path,
+            deck["conclusion_summary"],
+            conclusion_audio_path,
         )
+    deck["conclusion_audio_url"] = f"/api/audio/{deck_id}/{conclusion_audio_path.name}"
 
-    deck["closing_statement"] = CLOSING_STATEMENT
-    deck["closing_audio_url"] = f"/api/audio/{deck_id}/{closing_audio_path.name}"
+    # Backward-compatible aliases for existing clients.
+    deck["closing_statement"] = deck["conclusion_summary"]
+    deck["closing_audio_url"] = deck["conclusion_audio_url"]
+
     storage.save_deck(deck_id, deck)
 
     return {
         "deck_id": deck_id,
         "total_slides": deck["total_slides"],
         "slides": deck["slides"],
+        "intro_summary": deck["intro_summary"],
+        "intro_audio_url": deck["intro_audio_url"],
+        "conclusion_summary": deck["conclusion_summary"],
+        "conclusion_audio_url": deck["conclusion_audio_url"],
         "closing_statement": deck["closing_statement"],
         "closing_audio_url": deck["closing_audio_url"],
     }
@@ -183,12 +211,16 @@ async def narrate_slide(deck_id: str, slide_number: int):
 
     if not slide.get("script"):
         image_path = _slide_image_path(deck_id, slide)
+        previous = [s for s in deck["slides"] if s["slide_number"] < slide_number]
+        previous_slide = previous[-1] if previous else None
         slide["script"] = await run_in_threadpool(
             llm_service.build_slide_script,
             slide["title"],
             slide["content_text"],
             slide["notes_text"],
             image_path,
+            previous_slide["title"] if previous_slide else None,
+            previous_slide.get("script") if previous_slide else None,
         )
 
     audio_path = storage.slide_audio_path(deck_id, slide_number)

@@ -20,3 +20,10 @@ class DeckResponse(BaseModel):
     filename: str
     total_slides: int
     slides: list[SlideInfo]
+    render_warning: str | None = None
+    intro_summary: str | None = None
+    intro_audio_url: str | None = None
+    conclusion_summary: str | None = None
+    conclusion_audio_url: str | None = None
+    closing_statement: str | None = None
+    closing_audio_url: str | None = None
