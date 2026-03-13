@@ -79,6 +79,16 @@ def _deck_conclusion_audio_path(deck_id: str) -> Path:
     return deck_audio_dir / "conclusion_summary.wav"
 
 
+def _slide_position(index: int, total_slides: int) -> str:
+    if index == 0:
+        return "first"
+    if index == total_slides - 1:
+        return "last"
+    if index >= max(total_slides - 2, 1):
+        return "late"
+    return "middle"
+
+
 @app.get("/")
 async def home(request: Request):
     return templates.TemplateResponse("index.html", {"request": request})
@@ -107,7 +117,6 @@ async def upload_ppt(file: UploadFile = File(...)):
     if not slides:
         raise HTTPException(status_code=400, detail="No slides found in the uploaded file")
 
-    # Best-effort slide image rendering for UI preview.
     render_warning = None
     try:
         images_dir = storage.deck_images_dir(deck_id)
@@ -145,21 +154,29 @@ async def get_deck(deck_id: str):
 @app.post("/api/decks/{deck_id}/prepare")
 async def prepare_deck_narration(deck_id: str):
     deck = _load_deck_or_404(deck_id)
-
     slides = deck["slides"]
+
+    if not deck.get("deck_brief"):
+        deck["deck_brief"] = await run_in_threadpool(llm_service.build_deck_brief, slides)
+
+    total_slides = len(slides)
     for idx, slide in enumerate(slides):
         slide_number = slide["slide_number"]
         if not slide.get("script"):
             image_path = _slide_image_path(deck_id, slide)
             previous_slide = slides[idx - 1] if idx > 0 else None
+            next_slide = slides[idx + 1] if idx < total_slides - 1 else None
             slide["script"] = await run_in_threadpool(
                 llm_service.build_slide_script,
                 slide["title"],
                 slide["content_text"],
                 slide["notes_text"],
                 image_path,
+                deck["deck_brief"],
                 previous_slide["title"] if previous_slide else None,
                 previous_slide.get("script") if previous_slide else None,
+                next_slide["title"] if next_slide else None,
+                _slide_position(idx, total_slides),
             )
 
         audio_path = storage.slide_audio_path(deck_id, slide_number)
@@ -185,7 +202,6 @@ async def prepare_deck_narration(deck_id: str):
         )
     deck["conclusion_audio_url"] = f"/api/audio/{deck_id}/{conclusion_audio_path.name}"
 
-    # Backward-compatible aliases for existing clients.
     deck["closing_statement"] = deck["conclusion_summary"]
     deck["closing_audio_url"] = deck["conclusion_audio_url"]
 
@@ -213,14 +229,18 @@ async def narrate_slide(deck_id: str, slide_number: int):
         image_path = _slide_image_path(deck_id, slide)
         previous = [s for s in deck["slides"] if s["slide_number"] < slide_number]
         previous_slide = previous[-1] if previous else None
+        next_slide = next((s for s in deck["slides"] if s["slide_number"] > slide_number), None)
         slide["script"] = await run_in_threadpool(
             llm_service.build_slide_script,
             slide["title"],
             slide["content_text"],
             slide["notes_text"],
             image_path,
+            deck.get("deck_brief"),
             previous_slide["title"] if previous_slide else None,
             previous_slide.get("script") if previous_slide else None,
+            next_slide["title"] if next_slide else None,
+            "middle",
         )
 
     audio_path = storage.slide_audio_path(deck_id, slide_number)
@@ -317,3 +337,23 @@ async def voice_debug(payload: dict = Body(...)):
         print(f"[SlidePilot Voice Debug] {text}", flush=True)
         logger.info("Voice recognized: %s", text)
     return {"ok": True}
+
+
+from fastapi.responses import HTMLResponse
+
+
+@app.get("/api/test", response_class=HTMLResponse)
+async def test():
+    return """
+<html>
+<body>
+    <script src="https://js.puter.com/v2/"></script>
+    <script>
+        puter.ai.chat("Explain quantum computing in simple terms", {model: 'claude-sonnet-4-6'})
+            .then(response => {
+                puter.print(response.message.content[0].text);
+            });
+    </script>
+</body>
+</html>
+    """

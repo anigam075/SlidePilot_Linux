@@ -41,10 +41,50 @@ def _deck_context(slides: list[dict]) -> str:
     )
 
 
+def _safe_excerpt(text: str | None, limit: int = 220) -> str:
+    if not text:
+        return "[none]"
+    clean = " ".join(text.split())
+    return clean[:limit]
+
+
 class LLMService:
     def __init__(self) -> None:
         self.client = OpenAI(api_key=settings.openai_api_key)
         self.model = settings.openai_model
+
+    def build_deck_brief(self, slides: list[dict]) -> str:
+        completion = self.client.chat.completions.create(
+            model=self.model,
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "You are helping prepare a human-like presentation. Produce a concise deck brief "
+                        "that captures the storyline and speaker intent."
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": (
+                        "Create a compact presenter brief for this deck.\n"
+                        "Include:\n"
+                        "- overall topic\n"
+                        "- audience-facing objective\n"
+                        "- 3 to 5 key themes\n"
+                        "- a one-line storyline arc across the deck\n"
+                        "- one short role statement for each slide\n"
+                        "Keep it concise and factual.\n\n"
+                        f"Deck context:\n{_deck_context(slides) or '[none]'}"
+                    ),
+                },
+            ],
+        )
+        text = _first_text_choice(completion)
+        return (
+            text
+            or "Topic: presentation overview. Objective: explain the main ideas clearly. Storyline: introduce the topic, walk through key points, and close with takeaways."
+        )
 
     def build_slide_script(
         self,
@@ -52,12 +92,18 @@ class LLMService:
         content_text: str,
         notes_text: str,
         image_path: Path | None = None,
+        deck_brief: str | None = None,
         previous_slide_title: str | None = None,
         previous_script: str | None = None,
+        next_slide_title: str | None = None,
+        slide_position: str = "middle",
     ) -> str:
-        previous_context = (
+        continuity_context = (
+            f"Deck brief:\n{deck_brief or '[none]'}\n\n"
             f"Previous slide title: {previous_slide_title or '[none]'}\n"
-            f"Previous narration excerpt: {(previous_script or '[none]')[:220]}"
+            f"Previous narration excerpt: {_safe_excerpt(previous_script)}\n"
+            f"Next slide title: {next_slide_title or '[none]'}\n"
+            f"Current slide position: {slide_position}"
         )
         user_content: list[dict] = [
             {
@@ -65,17 +111,24 @@ class LLMService:
                 "text": (
                     "Generate spoken narration for one presentation slide.\n"
                     "Rules:\n"
-                    "- 90-160 words\n"
-                    "- Natural, clear, human presenter style\n"
+                    "- 85-150 words\n"
+                    "- Speak like a human presenter addressing an audience, not like a slide-captioning tool\n"
                     "- Prioritize factual accuracy from extracted text and notes\n"
-                    "- Use the slide image to interpret charts/diagrams/layout\n"
+                    "- Use the slide image only to support interpretation of business visuals like charts, diagrams, or screenshots\n"
                     "- If image and extracted text conflict, prefer extracted text for exact facts\n"
-                    "- If content is sparse, describe likely visual takeaway without inventing numbers\n"
+                    "- Never speculate about blank space, generic layouts, or vague design meaning\n"
+                    "- If content is sparse, explain the role of this slide in the presentation storyline instead of guessing what the image means\n"
                     "- No bullet list formatting\n"
-                    "- Vary opening naturally across slides (examples: 'In this slide,', 'This slide shows', 'So, this slide')\n"
-                    "- Do not repeat the same opening style as previous slide\n"
-                    "- Avoid robotic openings like 'Today we are discussing'\n\n"
-                    f"{previous_context}\n\n"
+                    "- Create continuity from the previous slide and, where natural, set up the next slide\n"
+                    "- Use a presenter flow: transition, explanation, takeaway\n"
+                    "- Avoid formulaic transition starters such as 'As we delve deeper', 'As we dive', 'As we continue', 'As we transition', 'As we move forward', or 'As we wrap up'\n"
+                    "- Prefer simple, human openings with variety: sometimes direct, sometimes contextual, sometimes takeaway-first\n"
+                    "- Do not use the same sentence pattern repeatedly across slides\n"
+                    "- Avoid starting with phrases like 'This image shows' unless the slide is explicitly about reading a visual\n"
+                    "- For the first slide, continue naturally after the opening summary and do not repeat salutations like hello everyone or welcome everyone\n"
+                    "- For middle slides, transition naturally from what was just covered\n"
+                    "- For late slides, sound like the presentation is progressing toward a conclusion\n\n"
+                    f"{continuity_context}\n\n"
                     f"Slide title: {title}\n\n"
                     f"Extracted slide text:\n{content_text or '[empty]'}\n\n"
                     f"Speaker notes:\n{notes_text or '[none]'}"
@@ -105,10 +158,11 @@ class LLMService:
         )
         text = _first_text_choice(completion)
         if not text:
-            text = "This slide appears to be mostly visual. Please review the key chart or image details."
+            text = "This part of the presentation highlights an important point that connects to the broader discussion."
         return text.strip()
 
     def build_deck_intro_summary(self, slides: list[dict]) -> str:
+        deck_brief = self.build_deck_brief(slides)
         completion = self.client.chat.completions.create(
             model=self.model,
             messages=[
@@ -127,8 +181,9 @@ class LLMService:
                         "- 45-85 words\n"
                         "- Explain what this presentation is about\n"
                         "- Mention 2-3 key themes at high level\n"
-                        "- Sound human and welcoming\n"
+                        "- Sound human and welcoming\n- You may use one light salutation like hello everyone or welcome everyone here\n- Do not use greetings like good morning, good afternoon, or good evening\n"
                         "- No bullet points\n\n"
+                        f"Presenter brief:\n{deck_brief}\n\n"
                         f"Deck context:\n{_deck_context(slides) or '[none]'}"
                     ),
                 },
@@ -138,6 +193,7 @@ class LLMService:
         return text or "Welcome. This presentation gives a quick overview of the key topics covered in this deck."
 
     def build_deck_conclusion_summary(self, slides: list[dict]) -> str:
+        deck_brief = self.build_deck_brief(slides)
         completion = self.client.chat.completions.create(
             model=self.model,
             messages=[
@@ -156,8 +212,9 @@ class LLMService:
                         "- 45-95 words\n"
                         "- Recap key takeaways\n"
                         "- End by inviting questions\n"
-                        "- Sound natural and confident\n"
+                        "- Sound natural and confident\n- Do not use greetings like good morning, good afternoon, or good evening\n"
                         "- No bullet points\n\n"
+                        f"Presenter brief:\n{deck_brief}\n\n"
                         f"Deck context:\n{_deck_context(slides) or '[none]'}"
                     ),
                 },
@@ -249,3 +306,7 @@ class LLMService:
         )
         text = _first_text_choice(completion)
         return text or "I could not find enough reliable context in this presentation to answer that."
+
+
+
+
