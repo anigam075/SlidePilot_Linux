@@ -17,6 +17,11 @@ const narrateBtn = document.getElementById("narrateBtn");
 const fullscreenBtn = document.getElementById("fullscreenBtn");
 const homeBtn = document.getElementById("homeBtn");
 const voiceBtn = document.getElementById("voiceBtn");
+const volumeControl = document.getElementById("volumeControl");
+const volumeBtn = document.getElementById("volumeBtn");
+const volumeIcon = document.getElementById("volumeIcon");
+const volumePopover = document.getElementById("volumePopover");
+const volumeSlider = document.getElementById("volumeSlider");
 const askBtn = document.getElementById("askBtn");
 const questionInput = document.getElementById("questionInput");
 const prevSlideBtn = document.getElementById("prevSlideBtn");
@@ -32,13 +37,71 @@ let isPaused = false;
 let hasCompletedPresentation = false;
 let recognizer = null;
 let voiceEnabled = false;
+let voiceDesired = false;
+let voiceRestartInProgress = false;
+let voiceRefreshTimer = null;
 let wakeIndicatorTimeout = null;
 let playbackToken = 0;
 let qnaAvailable = false;
+let lastNonZeroVolume = 1;
 
 function setStatus(message, isError = false) {
   statusBox.textContent = message;
   statusBox.style.color = isError ? "#b00020" : "#2f5976";
+}
+
+function loadSavedVolume() {
+  const savedVolume = Number.parseFloat(localStorage.getItem("slidepilot_volume") || "1");
+  const savedMuted = localStorage.getItem("slidepilot_muted") === "true";
+  const safeVolume = Number.isFinite(savedVolume) ? Math.min(1, Math.max(0, savedVolume)) : 1;
+  audioPlayer.volume = safeVolume;
+  audioPlayer.muted = savedMuted || safeVolume === 0;
+  lastNonZeroVolume = safeVolume > 0 ? safeVolume : 1;
+  syncVolumeUI();
+}
+
+function saveVolumeState() {
+  localStorage.setItem("slidepilot_volume", String(audioPlayer.volume));
+  localStorage.setItem("slidepilot_muted", String(audioPlayer.muted));
+}
+
+function syncVolumeUI() {
+  const effectiveVolume = audioPlayer.muted ? 0 : audioPlayer.volume;
+  volumeSlider.value = String(Math.round(effectiveVolume * 100));
+  if (audioPlayer.muted || effectiveVolume === 0) {
+    volumeIcon.innerHTML = "&#128263;";
+    volumeBtn.setAttribute("aria-label", "Unmute audio");
+    return;
+  }
+  if (effectiveVolume < 0.5) {
+    volumeIcon.innerHTML = "&#128265;";
+  } else {
+    volumeIcon.innerHTML = "&#128266;";
+  }
+  volumeBtn.setAttribute("aria-label", "Mute audio");
+}
+
+function setVolume(nextVolume) {
+  const safeVolume = Math.min(1, Math.max(0, nextVolume));
+  audioPlayer.volume = safeVolume;
+  audioPlayer.muted = safeVolume === 0;
+  if (safeVolume > 0) {
+    lastNonZeroVolume = safeVolume;
+  }
+  saveVolumeState();
+  syncVolumeUI();
+}
+
+function toggleMute() {
+  if (audioPlayer.muted || audioPlayer.volume === 0) {
+    audioPlayer.muted = false;
+    audioPlayer.volume = lastNonZeroVolume > 0 ? lastNonZeroVolume : 1;
+  } else {
+    lastNonZeroVolume = audioPlayer.volume;
+    audioPlayer.muted = true;
+  }
+  saveVolumeState();
+  syncVolumeUI();
 }
 
 function appendChatMessage(text, role) {
@@ -70,8 +133,14 @@ function toggleQnA(open) {
   qnaSection.classList.toggle("hidden", !shouldOpen);
   qnaToggleBtn.textContent = shouldOpen ? "Close" : "Chat";
 }
+
 function currentSlide() {
   return deck?.slides?.[currentSlideIndex] || null;
+}
+
+function findSlideIndexByNumber(slideNumber) {
+  if (!deck?.slides?.length || !Number.isInteger(slideNumber)) return -1;
+  return deck.slides.findIndex((slide) => slide.slide_number === slideNumber);
 }
 
 function setNavState() {
@@ -113,7 +182,6 @@ async function navigateSlide(direction) {
   currentSlideIndex = targetIndex;
   renderSlide();
 
-  // If autoplay is active, the autoplay loop will resume from this slide.
   if (wasAutoRunning) {
     isPaused = false;
     narrateBtn.textContent = "Pause";
@@ -191,6 +259,58 @@ async function pushVoiceDebugToServer(text) {
   }
 }
 
+function clearVoiceRefreshTimer() {
+  if (voiceRefreshTimer) {
+    clearTimeout(voiceRefreshTimer);
+    voiceRefreshTimer = null;
+  }
+}
+
+function scheduleVoiceTokenRefresh() {
+  clearVoiceRefreshTimer();
+  voiceRefreshTimer = setTimeout(() => {
+    restartVoiceRecognition("Refreshing voice session...");
+  }, 8 * 60 * 1000);
+}
+
+function closeRecognizerInstance() {
+  if (!recognizer) return;
+  try {
+    recognizer.close();
+  } catch {
+    // Best-effort cleanup only.
+  }
+  recognizer = null;
+}
+
+async function restartVoiceRecognition(statusMessage = "Reconnecting voice control...") {
+  if (!voiceDesired || voiceRestartInProgress) {
+    return;
+  }
+  voiceRestartInProgress = true;
+  clearVoiceRefreshTimer();
+  setStatus(statusMessage);
+  try {
+    if (recognizer) {
+      await new Promise((resolve) => {
+        recognizer.stopContinuousRecognitionAsync(resolve, resolve);
+      });
+    }
+    closeRecognizerInstance();
+    voiceEnabled = false;
+    setVoiceButton();
+    await startVoiceRecognition(true);
+    setStatus("Voice control is active. Start commands with 'Slide pilot ...'.");
+  } catch (error) {
+    voiceEnabled = false;
+    voiceDesired = false;
+    setVoiceButton();
+    setStatus(error.message || "Unable to restore voice recognition.", true);
+  } finally {
+    voiceRestartInProgress = false;
+  }
+}
+
 async function handleVoiceCommand(rawText) {
   const normalized = normalizeVoiceText(rawText);
   const wakeMatch = normalized.match(/^slide[\s,.]*pilot[,\s:-]*(.*)$/);
@@ -219,7 +339,6 @@ async function handleVoiceCommand(rawText) {
     return;
   }
   if (command.includes("start narration")) {
-    // Fallback command: resume autoplay from the current slide.
     hasCompletedPresentation = false;
     narrateBtn.click();
     return;
@@ -301,7 +420,11 @@ async function handleVoiceCommand(rawText) {
     return;
   }
 
-  // Unmatched command after wake phrase is treated as a QnA question.
+  if (autoPresentationRunning) {
+    setStatus("Voice questions are available after narration completes. Control commands still work during playback.", true);
+    return;
+  }
+
   if (!qnaAvailable) {
     setStatus("Voice question received. QnA opens after presentation finishes.", true);
     return;
@@ -313,7 +436,7 @@ async function handleVoiceCommand(rawText) {
   askBtn.click();
 }
 
-async function startVoiceRecognition() {
+async function startVoiceRecognition(isReconnect = false) {
   const sdk = window.SpeechSDK;
   if (!sdk) {
     throw new Error("Azure Speech SDK not loaded in browser.");
@@ -331,25 +454,45 @@ async function startVoiceRecognition() {
     await pushVoiceDebugToServer(recognizedText);
     await handleVoiceCommand(recognizedText);
   };
-  recognizer.canceled = () => {
-    setStatus("Voice recognition canceled.", true);
+  recognizer.canceled = (_sender, event) => {
+    const reason = event?.errorDetails || event?.reason || "Voice recognition canceled.";
+    if (!voiceDesired) {
+      voiceEnabled = false;
+      setVoiceButton();
+      return;
+    }
+    restartVoiceRecognition(`Voice session interrupted. ${reason}`);
+  };
+  recognizer.sessionStopped = () => {
+    if (!voiceDesired) {
+      voiceEnabled = false;
+      setVoiceButton();
+      return;
+    }
+    restartVoiceRecognition("Voice session ended. Reconnecting...");
   };
 
   await new Promise((resolve, reject) => {
     recognizer.startContinuousRecognitionAsync(resolve, reject);
   });
+  voiceDesired = true;
   voiceEnabled = true;
+  scheduleVoiceTokenRefresh();
   setVoiceButton();
-  setStatus("Voice control is active. Start commands with 'Slide pilot ...'.");
+  if (!isReconnect) {
+    setStatus("Voice control is active. Start commands with 'Slide pilot ...'.");
+  }
 }
 
 async function stopVoiceRecognition() {
-  if (!recognizer) return;
-  await new Promise((resolve, reject) => {
-    recognizer.stopContinuousRecognitionAsync(resolve, reject);
-  });
-  recognizer.close();
-  recognizer = null;
+  voiceDesired = false;
+  clearVoiceRefreshTimer();
+  if (recognizer) {
+    await new Promise((resolve) => {
+      recognizer.stopContinuousRecognitionAsync(resolve, resolve);
+    });
+  }
+  closeRecognizerInstance();
   voiceEnabled = false;
   setVoiceButton();
   setStatus("Voice control stopped.");
@@ -403,7 +546,6 @@ async function ensurePreparedDeck() {
   deck.closing_audio_url = prepared.closing_audio_url || deck.closing_audio_url;
 }
 
-
 async function playNarrationClip(url, statusText) {
   if (!url) {
     return "ended";
@@ -415,7 +557,9 @@ async function playNarrationClip(url, statusText) {
   audioPlayer.src = url;
   await audioPlayer.play();
   return await waitForAudioToEnd(startToken);
-}async function playCurrentSlideAudioAuto() {
+}
+
+async function playCurrentSlideAudioAuto() {
   const slide = currentSlide();
   if (!deck || !slide) return "interrupted";
   if (!slide.audio_url) {
@@ -426,6 +570,40 @@ async function playNarrationClip(url, statusText) {
   const startToken = playbackToken;
   await audioPlayer.play();
   return await waitForAudioToEnd(startToken);
+}
+
+async function playQnAResponse(payload) {
+  const startIndex = currentSlideIndex;
+  let referencedIndex = -1;
+
+  if (payload.answer_scope === "single_slide" && Number.isInteger(payload.primary_slide_number)) {
+    referencedIndex = findSlideIndexByNumber(payload.primary_slide_number);
+    if (referencedIndex >= 0 && referencedIndex !== currentSlideIndex) {
+      interruptCurrentPlayback();
+      currentSlideIndex = referencedIndex;
+      renderSlide();
+      setStatus(`Showing slide ${payload.primary_slide_number} while answering your question.`);
+    }
+  } else if (payload.context_notice) {
+    setStatus(payload.context_notice);
+  }
+
+  if (!payload.audio_url) {
+    return;
+  }
+
+  try {
+    const startToken = playbackToken;
+    audioPlayer.src = payload.audio_url;
+    await audioPlayer.play();
+    await waitForAudioToEnd(startToken);
+  } finally {
+    if (referencedIndex >= 0 && startIndex !== referencedIndex) {
+      currentSlideIndex = startIndex;
+      renderSlide();
+      setStatus("Returned to your previous slide.");
+    }
+  }
 }
 
 async function loadDeck() {
@@ -497,7 +675,10 @@ narrateBtn.addEventListener("click", async () => {
     narrateBtn.textContent = "Pause";
 
     if (currentSlideIndex === 0 && deck.intro_audio_url) {
-      const introState = await playNarrationClip(deck.intro_audio_url, deck.intro_summary || "Here is a quick overview of this presentation.");
+      const introState = await playNarrationClip(
+        deck.intro_audio_url,
+        deck.intro_summary || "Here is a quick overview of this presentation.",
+      );
       if (!autoPresentationRunning) return;
       if (introState !== "ended" && introState !== "interrupted") {
         return;
@@ -568,6 +749,15 @@ homeBtn.addEventListener("click", () => {
   window.location.href = "/";
 });
 
+volumeBtn.addEventListener("click", (event) => {
+  event.preventDefault();
+  toggleMute();
+});
+
+volumeSlider.addEventListener("input", () => {
+  setVolume(Number(volumeSlider.value) / 100);
+});
+
 prevSlideBtn.addEventListener("click", async () => {
   await navigateSlide(-1);
 });
@@ -607,6 +797,10 @@ voiceBtn.addEventListener("click", async () => {
 askBtn.addEventListener("click", async () => {
   const question = questionInput.value.trim();
   if (!deck) return;
+  if (autoPresentationRunning) {
+    setStatus("QnA is available after narration completes.", true);
+    return;
+  }
   if (!qnaAvailable) {
     setStatus("QnA opens after presentation finishes.", true);
     return;
@@ -636,10 +830,7 @@ askBtn.addEventListener("click", async () => {
     }
     const payload = await response.json();
     appendChatMessage(payload.answer || "I could not generate an answer.", "assistant");
-    if (payload.audio_url) {
-      audioPlayer.src = payload.audio_url;
-      audioPlayer.play();
-    }
+    await playQnAResponse(payload);
     setStatus("Answer generated.");
   } catch (error) {
     setStatus(error.message || "QnA failed", true);
@@ -653,25 +844,8 @@ qnaToggleBtn.addEventListener("click", () => {
   toggleQnA();
 });
 
+loadSavedVolume();
 updateFullscreenButton();
 setVoiceButton();
 setQnAAvailability(false);
 loadDeck();
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

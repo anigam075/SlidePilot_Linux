@@ -32,6 +32,22 @@
               &gt;
             </button>
             <p id="slideImageHint" class="muted"></p>
+            <div class="slide-volume-control" id="volumeControl">
+              <button id="volumeBtn" class="volume-icon-btn" type="button" aria-label="Mute or unmute audio">
+                <span id="volumeIcon" aria-hidden="true">&#128266;</span>
+              </button>
+              <div class="volume-hover-panel" id="volumePopover">
+                <input
+                  id="volumeSlider"
+                  type="range"
+                  min="0"
+                  max="100"
+                  step="1"
+                  value="100"
+                  aria-label="Volume level"
+                />
+              </div>
+            </div>
           </div>
 
           <div class="control-pane">
@@ -46,24 +62,22 @@
           </div>
         </div>
       </section>
-    
-    <div class="qna-widget hidden" id="qnaWidget">
-      <button id="qnaToggleBtn" class="qna-toggle" type="button" aria-label="Open QnA chat">Chat</button>
-      <div class="qna qna-panel hidden" id="qnaSection">
-        <h3>QnA</h3>
-        <div id="chatFeed" class="chat-feed" aria-live="polite"></div>
-        <div class="chat-input-row">
-          <textarea id="questionInput" placeholder="Ask a question about the full presentation"></textarea>
-          <button id="askBtn" type="button">Send</button>
+
+      <div class="qna-widget hidden" id="qnaWidget">
+        <button id="qnaToggleBtn" class="qna-toggle" type="button" aria-label="Open QnA chat">Chat</button>
+        <div class="qna qna-panel hidden" id="qnaSection">
+          <h3>QnA</h3>
+          <div id="chatFeed" class="chat-feed" aria-live="polite"></div>
+          <div class="chat-input-row">
+            <textarea id="questionInput" placeholder="Ask a question about the full presentation"></textarea>
+            <button id="askBtn" type="button">Send</button>
+          </div>
         </div>
       </div>
-    </div>
-  </main>
+    </main>
 
     <script src="https://aka.ms/csspeech/jsbrowserpackageraw"></script>
     <script src="/static/player.js"></script>
   </body>
 </html>
-
-
 

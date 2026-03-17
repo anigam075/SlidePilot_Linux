@@ -27,3 +27,11 @@ class DeckResponse(BaseModel):
     conclusion_audio_url: str | None = None
     closing_statement: str | None = None
     closing_audio_url: str | None = None
+
+
+class DeckQnAResponse(BaseModel):
+    answer: str
+    audio_url: str
+    answer_scope: str
+    primary_slide_number: int | None = None
+    context_notice: str | None = None

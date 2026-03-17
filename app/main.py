@@ -14,7 +14,7 @@ from fastapi.templating import Jinja2Templates
 from starlette.concurrency import run_in_threadpool
 
 from app.config import settings
-from app.models import DeckResponse, QnARequest
+from app.models import DeckQnAResponse, DeckResponse, QnARequest
 from app.services.llm_service import LLMService
 from app.services.ppt_service import parse_pptx
 from app.services.slide_render_service import render_pptx_to_images
@@ -282,19 +282,34 @@ async def slide_qna(deck_id: str, slide_number: int, body: QnARequest):
     }
 
 
-@app.post("/api/decks/{deck_id}/qna")
+@app.post("/api/decks/{deck_id}/qna", response_model=DeckQnAResponse)
 async def deck_qna(deck_id: str, body: QnARequest):
     question = body.question.strip()
     if not question:
         raise HTTPException(status_code=400, detail="Question cannot be empty")
 
     deck = _load_deck_or_404(deck_id)
-    answer = await run_in_threadpool(llm_service.answer_deck_question, question, deck["slides"])
+    result = await run_in_threadpool(llm_service.answer_deck_question_with_reference, question, deck["slides"])
+
+    answer_scope = result.get("answer_scope") or "deck_level"
+    primary_slide_number = result.get("primary_slide_number")
+    answer = (result.get("answer") or "").strip() or "I could not find enough reliable context in this presentation to answer that."
+    context_notice = None
+
+    if answer_scope == "multi_slide":
+        context_notice = "This answer refers to multiple slides, so SlidePilot will not jump to a single slide."
+    elif answer_scope == "deck_level":
+        context_notice = "This answer is based on the full presentation, so no single slide will be shown."
+
+    spoken_answer = f"{context_notice} {answer}".strip() if context_notice else answer
     qna_audio_path = storage.qna_audio_path(deck_id, 0)
-    await run_in_threadpool(speech_service.synthesize_to_file, answer, qna_audio_path)
+    await run_in_threadpool(speech_service.synthesize_to_file, spoken_answer, qna_audio_path)
     return {
-        "answer": answer,
+        "answer": spoken_answer,
         "audio_url": f"/api/audio/{deck_id}/{qna_audio_path.name}",
+        "answer_scope": answer_scope,
+        "primary_slide_number": primary_slide_number,
+        "context_notice": context_notice,
     }
 
 

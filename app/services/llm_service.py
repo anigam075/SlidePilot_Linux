@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import json
 import mimetypes
 from pathlib import Path
 
@@ -276,6 +277,9 @@ class LLMService:
         return text or "I could not find enough reliable context in this slide to answer that."
 
     def answer_deck_question(self, question: str, slides: list[dict]) -> str:
+        return self.answer_deck_question_with_reference(question, slides)["answer"]
+
+    def answer_deck_question_with_reference(self, question: str, slides: list[dict]) -> dict:
         deck_context = "\n\n".join(
             [
                 f"Slide {s['slide_number']} - {s['title']}\n"
@@ -292,12 +296,25 @@ class LLMService:
                     "role": "system",
                     "content": (
                         "You are a presentation QnA assistant. Answer questions using the full deck context. "
-                        "If the deck context is insufficient, say that clearly."
+                        "Classify whether the answer is anchored to one specific slide, multiple slides, or the full deck. "
+                        "Return strict JSON only."
                     ),
                 },
                 {
                     "role": "user",
                     "content": (
+                        "Use the full deck context to answer the question.\n"
+                        "Return JSON with exactly these keys:\n"
+                        "answer_scope: one of single_slide, multi_slide, deck_level\n"
+                        "primary_slide_number: integer slide number or null\n"
+                        "answer: concise spoken answer grounded in the deck\n"
+                        "Rules:\n"
+                        "- Use single_slide only when one slide is clearly the best reference\n"
+                        "- Use multi_slide when multiple slides are needed\n"
+                        "- Use deck_level when the answer is about the overall presentation\n"
+                        "- If answer_scope is single_slide, the answer may naturally reference that slide with phrases like 'on this slide' or 'as you can see here'\n"
+                        "- If answer_scope is multi_slide or deck_level, do not pretend one visible slide is enough\n"
+                        "- Do not include markdown fences or extra commentary\n\n"
                         f"Deck context:\n{deck_context or '[none]'}\n\n"
                         f"Question:\n{question}"
                     ),
@@ -305,8 +322,38 @@ class LLMService:
             ],
         )
         text = _first_text_choice(completion)
-        return text or "I could not find enough reliable context in this presentation to answer that."
+        fallback = {
+            "answer_scope": "deck_level",
+            "primary_slide_number": None,
+            "answer": "I could not find enough reliable context in this presentation to answer that.",
+        }
+        if not text:
+            return fallback
+        try:
+            payload = json.loads(text)
+        except json.JSONDecodeError:
+            return {
+                "answer_scope": "deck_level",
+                "primary_slide_number": None,
+                "answer": text,
+            }
 
+        answer_scope = str(payload.get("answer_scope") or "deck_level").strip()
+        if answer_scope not in {"single_slide", "multi_slide", "deck_level"}:
+            answer_scope = "deck_level"
+        primary_slide_number = payload.get("primary_slide_number")
+        if answer_scope != "single_slide":
+            primary_slide_number = None
+        else:
+            try:
+                primary_slide_number = int(primary_slide_number)
+            except (TypeError, ValueError):
+                answer_scope = "deck_level"
+                primary_slide_number = None
 
-
-
+        answer = str(payload.get("answer") or "").strip() or fallback["answer"]
+        return {
+            "answer_scope": answer_scope,
+            "primary_slide_number": primary_slide_number,
+            "answer": answer,
+        }

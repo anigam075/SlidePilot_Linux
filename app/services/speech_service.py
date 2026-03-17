@@ -25,6 +25,10 @@ class SpeechService:
         if result.reason != speechsdk.ResultReason.SynthesizingAudioCompleted:
             details = ""
             if result.reason == speechsdk.ResultReason.Canceled:
-                cancellation = speechsdk.SpeechSynthesisCancellationDetails.from_result(result)
-                details = f" ({cancellation.reason}: {cancellation.error_details})"
+                try:
+                    cancellation = speechsdk.SpeechSynthesisCancellationDetails(result=result)
+                    details = f" ({cancellation.reason}: {cancellation.error_details})"
+                except Exception as exc:
+                    details = f" (cancellation details unavailable: {exc})"
             raise RuntimeError(f"Speech synthesis failed{details}")
+
