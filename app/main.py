@@ -1,20 +1,20 @@
 from __future__ import annotations
 
+import logging
+import re
 import shutil
 from pathlib import Path
-import re
-import logging
 
 import httpx
-from fastapi import Body, FastAPI, File, HTTPException, Request, UploadFile
+from fastapi import Body, FastAPI, File, HTTPException, Query, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.concurrency import run_in_threadpool
 
 from app.config import settings
-from app.models import DeckQnAResponse, DeckResponse, QnARequest
+from app.models import DeckQnAResponse, DeckResponse, QnARequest, SlideScriptRequest
 from app.services.llm_service import LLMService
 from app.services.ppt_service import parse_pptx
 from app.services.slide_render_service import render_pptx_to_images
@@ -42,6 +42,7 @@ storage = StorageService(settings.storage_root)
 llm_service = LLMService()
 speech_service = SpeechService()
 logger = logging.getLogger("slidepilot.voice")
+REVIEW_PAGE_SIZE = 4
 
 
 def _load_deck_or_404(deck_id: str) -> dict:
@@ -55,6 +56,13 @@ def _find_slide(deck: dict, slide_number: int) -> dict:
     for slide in deck["slides"]:
         if slide["slide_number"] == slide_number:
             return slide
+    raise HTTPException(status_code=404, detail="Slide not found")
+
+
+def _find_slide_index(deck: dict, slide_number: int) -> int:
+    for index, slide in enumerate(deck["slides"]):
+        if slide["slide_number"] == slide_number:
+            return index
     raise HTTPException(status_code=404, detail="Slide not found")
 
 
@@ -89,9 +97,154 @@ def _slide_position(index: int, total_slides: int) -> str:
     return "middle"
 
 
+def _invalidate_slide_audio(deck_id: str, slide_number: int) -> None:
+    audio_path = storage.slide_audio_path(deck_id, slide_number)
+    if audio_path.exists():
+        audio_path.unlink()
+
+
+def _serialize_deck_response(deck: dict) -> dict:
+    return {
+        "deck_id": deck["deck_id"],
+        "filename": deck["filename"],
+        "total_slides": deck["total_slides"],
+        "slides": deck["slides"],
+        "render_warning": deck.get("render_warning"),
+        "intro_summary": deck.get("intro_summary"),
+        "intro_audio_url": deck.get("intro_audio_url"),
+        "conclusion_summary": deck.get("conclusion_summary"),
+        "conclusion_audio_url": deck.get("conclusion_audio_url"),
+        "closing_statement": deck.get("closing_statement"),
+        "closing_audio_url": deck.get("closing_audio_url"),
+        "review_ready": bool(deck.get("review_ready")),
+        "finalized": bool(deck.get("finalized")),
+    }
+
+
+def _build_slide_script(deck_id: str, deck: dict, slide_index: int) -> str:
+    slides = deck["slides"]
+    slide = slides[slide_index]
+    total_slides = len(slides)
+    previous_slide = slides[slide_index - 1] if slide_index > 0 else None
+    next_slide = slides[slide_index + 1] if slide_index < total_slides - 1 else None
+    image_path = _slide_image_path(deck_id, slide)
+    return llm_service.build_slide_script(
+        slide["title"],
+        slide["content_text"],
+        slide["notes_text"],
+        image_path,
+        deck.get("deck_brief"),
+        previous_slide["title"] if previous_slide else None,
+        previous_slide.get("script") if previous_slide else None,
+        next_slide["title"] if next_slide else None,
+        _slide_position(slide_index, total_slides),
+    )
+
+
+def _prepare_deck_assets(deck_id: str, synthesize_audio: bool, include_summaries: bool = True) -> dict:
+    deck = _load_deck_or_404(deck_id)
+    slides = deck["slides"]
+
+    if not deck.get("deck_brief"):
+        deck["deck_brief"] = llm_service.build_deck_brief(slides)
+
+    for idx, slide in enumerate(slides):
+        if not slide.get("script"):
+            slide["script"] = _build_slide_script(deck_id, deck, idx)
+            slide["script_source"] = "generated"
+
+        if synthesize_audio:
+            audio_path = storage.slide_audio_path(deck_id, slide["slide_number"])
+            speech_service.synthesize_to_file(slide["script"], audio_path)
+            slide["audio_url"] = f"/api/audio/{deck_id}/{audio_path.name}"
+        else:
+            slide.setdefault("audio_url", None)
+
+    if include_summaries:
+        deck["intro_summary"] = llm_service.build_deck_intro_summary(slides)
+        deck["conclusion_summary"] = llm_service.build_deck_conclusion_summary(slides)
+
+        if synthesize_audio:
+            intro_audio_path = _deck_intro_audio_path(deck_id)
+            speech_service.synthesize_to_file(deck["intro_summary"], intro_audio_path)
+            deck["intro_audio_url"] = f"/api/audio/{deck_id}/{intro_audio_path.name}"
+
+            conclusion_audio_path = _deck_conclusion_audio_path(deck_id)
+            speech_service.synthesize_to_file(deck["conclusion_summary"], conclusion_audio_path)
+            deck["conclusion_audio_url"] = f"/api/audio/{deck_id}/{conclusion_audio_path.name}"
+
+        deck["closing_statement"] = deck["conclusion_summary"]
+        deck["closing_audio_url"] = deck.get("conclusion_audio_url")
+
+    deck["review_ready"] = any(slide.get("script") for slide in slides)
+    if synthesize_audio:
+        deck["finalized"] = True
+
+    storage.save_deck(deck_id, deck)
+    return deck
+
+
+def _review_page_window(total_slides: int, page: int, page_size: int) -> tuple[int, int, int]:
+    safe_page_size = max(1, min(page_size, REVIEW_PAGE_SIZE))
+    total_pages = max(1, (total_slides + safe_page_size - 1) // safe_page_size)
+    safe_page = min(max(page, 1), total_pages)
+    start = (safe_page - 1) * safe_page_size
+    end = min(start + safe_page_size, total_slides)
+    return safe_page, total_pages, start, end
+
+
+def _serialize_review_page(deck: dict, page: int, page_size: int) -> dict:
+    safe_page, total_pages, start, end = _review_page_window(deck["total_slides"], page, page_size)
+    return {
+        **_serialize_deck_response(deck),
+        "current_page": safe_page,
+        "page_size": min(max(page_size, 1), REVIEW_PAGE_SIZE),
+        "total_pages": total_pages,
+        "slides": deck["slides"][start:end],
+    }
+
+
+def _prepare_review_page(deck_id: str, page: int, page_size: int) -> dict:
+    deck = _load_deck_or_404(deck_id)
+    if not deck.get("deck_brief"):
+        deck["deck_brief"] = llm_service.build_deck_brief(deck["slides"])
+
+    safe_page, total_pages, start, end = _review_page_window(deck["total_slides"], page, page_size)
+    for idx in range(start, end):
+        slide = deck["slides"][idx]
+        if not slide.get("script"):
+            slide["script"] = _build_slide_script(deck_id, deck, idx)
+            slide["script_source"] = "generated"
+            slide["audio_url"] = None
+
+    deck["review_ready"] = True
+    deck["finalized"] = False
+    storage.save_deck(deck_id, deck)
+    payload = _serialize_review_page(deck, safe_page, page_size)
+    payload["total_pages"] = total_pages
+    return payload
+
+
+def _finalize_deck(deck_id: str) -> dict:
+    deck = _prepare_deck_assets(deck_id, synthesize_audio=True, include_summaries=True)
+    deck["finalized"] = True
+    storage.save_deck(deck_id, deck)
+    return deck
+
+
 @app.get("/")
 async def home(request: Request):
+    await run_in_threadpool(storage.clear_workspace)
     return templates.TemplateResponse("index.html", {"request": request})
+
+
+@app.get("/review/{deck_id}")
+async def review_page(request: Request, deck_id: str):
+    _load_deck_or_404(deck_id)
+    return templates.TemplateResponse(
+        "editor.html",
+        {"request": request, "deck_id": deck_id},
+    )
 
 
 @app.get("/player/{deck_id}")
@@ -131,6 +284,7 @@ async def upload_ppt(file: UploadFile = File(...)):
             filename = image_by_number.get(slide["slide_number"])
             if filename:
                 slide["image_url"] = f"/api/images/{deck_id}/{filename}"
+            slide["script_source"] = None
     except Exception as exc:
         render_warning = str(exc)
 
@@ -141,72 +295,26 @@ async def upload_ppt(file: UploadFile = File(...)):
         "total_slides": len(slides),
         "slides": slides,
         "render_warning": render_warning,
+        "review_ready": False,
+        "finalized": False,
     }
     storage.save_deck(deck_id, deck)
-    return deck
+    return _serialize_deck_response(deck)
 
 
 @app.get("/api/decks/{deck_id}", response_model=DeckResponse)
 async def get_deck(deck_id: str):
-    return _load_deck_or_404(deck_id)
+    return _serialize_deck_response(_load_deck_or_404(deck_id))
+
+
+@app.post("/api/decks/{deck_id}/draft")
+async def prepare_draft_deck(deck_id: str, page: int = Query(1, ge=1), page_size: int = Query(REVIEW_PAGE_SIZE, ge=1, le=REVIEW_PAGE_SIZE)):
+    return await run_in_threadpool(_prepare_review_page, deck_id, page, page_size)
 
 
 @app.post("/api/decks/{deck_id}/prepare")
 async def prepare_deck_narration(deck_id: str):
-    deck = _load_deck_or_404(deck_id)
-    slides = deck["slides"]
-
-    if not deck.get("deck_brief"):
-        deck["deck_brief"] = await run_in_threadpool(llm_service.build_deck_brief, slides)
-
-    total_slides = len(slides)
-    for idx, slide in enumerate(slides):
-        slide_number = slide["slide_number"]
-        if not slide.get("script"):
-            image_path = _slide_image_path(deck_id, slide)
-            previous_slide = slides[idx - 1] if idx > 0 else None
-            next_slide = slides[idx + 1] if idx < total_slides - 1 else None
-            slide["script"] = await run_in_threadpool(
-                llm_service.build_slide_script,
-                slide["title"],
-                slide["content_text"],
-                slide["notes_text"],
-                image_path,
-                deck["deck_brief"],
-                previous_slide["title"] if previous_slide else None,
-                previous_slide.get("script") if previous_slide else None,
-                next_slide["title"] if next_slide else None,
-                _slide_position(idx, total_slides),
-            )
-
-        audio_path = storage.slide_audio_path(deck_id, slide_number)
-        if not audio_path.exists():
-            await run_in_threadpool(speech_service.synthesize_to_file, slide["script"], audio_path)
-        slide["audio_url"] = f"/api/audio/{deck_id}/{audio_path.name}"
-
-    if not deck.get("intro_summary"):
-        deck["intro_summary"] = await run_in_threadpool(llm_service.build_deck_intro_summary, slides)
-    intro_audio_path = _deck_intro_audio_path(deck_id)
-    if not intro_audio_path.exists():
-        await run_in_threadpool(speech_service.synthesize_to_file, deck["intro_summary"], intro_audio_path)
-    deck["intro_audio_url"] = f"/api/audio/{deck_id}/{intro_audio_path.name}"
-
-    if not deck.get("conclusion_summary"):
-        deck["conclusion_summary"] = await run_in_threadpool(llm_service.build_deck_conclusion_summary, slides)
-    conclusion_audio_path = _deck_conclusion_audio_path(deck_id)
-    if not conclusion_audio_path.exists():
-        await run_in_threadpool(
-            speech_service.synthesize_to_file,
-            deck["conclusion_summary"],
-            conclusion_audio_path,
-        )
-    deck["conclusion_audio_url"] = f"/api/audio/{deck_id}/{conclusion_audio_path.name}"
-
-    deck["closing_statement"] = deck["conclusion_summary"]
-    deck["closing_audio_url"] = deck["conclusion_audio_url"]
-
-    storage.save_deck(deck_id, deck)
-
+    deck = await run_in_threadpool(_finalize_deck, deck_id)
     return {
         "deck_id": deck_id,
         "total_slides": deck["total_slides"],
@@ -220,28 +328,72 @@ async def prepare_deck_narration(deck_id: str):
     }
 
 
+@app.post("/api/decks/{deck_id}/finalize", response_model=DeckResponse)
+async def finalize_deck(deck_id: str):
+    deck = await run_in_threadpool(_finalize_deck, deck_id)
+    return _serialize_deck_response(deck)
+
+
+@app.post("/api/decks/{deck_id}/slides/{slide_number}/refresh-script")
+async def refresh_slide_script(deck_id: str, slide_number: int):
+    deck = _load_deck_or_404(deck_id)
+    slide_index = _find_slide_index(deck, slide_number)
+    slide = deck["slides"][slide_index]
+
+    if not deck.get("deck_brief"):
+        deck["deck_brief"] = await run_in_threadpool(llm_service.build_deck_brief, deck["slides"])
+
+    slide["script"] = await run_in_threadpool(_build_slide_script, deck_id, deck, slide_index)
+    slide["script_source"] = "generated"
+    slide["audio_url"] = None
+    deck["finalized"] = False
+    _invalidate_slide_audio(deck_id, slide_number)
+
+    storage.save_deck(deck_id, deck)
+    return {
+        "deck_id": deck_id,
+        "slide_number": slide_number,
+        "title": slide["title"],
+        "script": slide["script"],
+        "script_source": slide.get("script_source"),
+    }
+
+
+@app.put("/api/decks/{deck_id}/slides/{slide_number}/script")
+async def save_slide_script(deck_id: str, slide_number: int, body: SlideScriptRequest):
+    script = body.script.strip()
+    if not script:
+        raise HTTPException(status_code=400, detail="Narration cannot be empty")
+
+    deck = _load_deck_or_404(deck_id)
+    slide = _find_slide(deck, slide_number)
+    slide["script"] = script
+    slide["script_source"] = "custom"
+    slide["audio_url"] = None
+    deck["finalized"] = False
+    _invalidate_slide_audio(deck_id, slide_number)
+
+    storage.save_deck(deck_id, deck)
+    return {
+        "deck_id": deck_id,
+        "slide_number": slide_number,
+        "title": slide["title"],
+        "script": slide["script"],
+        "script_source": slide.get("script_source"),
+    }
+
+
 @app.post("/api/decks/{deck_id}/slides/{slide_number}/narrate")
 async def narrate_slide(deck_id: str, slide_number: int):
     deck = _load_deck_or_404(deck_id)
     slide = _find_slide(deck, slide_number)
 
     if not slide.get("script"):
-        image_path = _slide_image_path(deck_id, slide)
-        previous = [s for s in deck["slides"] if s["slide_number"] < slide_number]
-        previous_slide = previous[-1] if previous else None
-        next_slide = next((s for s in deck["slides"] if s["slide_number"] > slide_number), None)
-        slide["script"] = await run_in_threadpool(
-            llm_service.build_slide_script,
-            slide["title"],
-            slide["content_text"],
-            slide["notes_text"],
-            image_path,
-            deck.get("deck_brief"),
-            previous_slide["title"] if previous_slide else None,
-            previous_slide.get("script") if previous_slide else None,
-            next_slide["title"] if next_slide else None,
-            "middle",
-        )
+        slide_index = _find_slide_index(deck, slide_number)
+        if not deck.get("deck_brief"):
+            deck["deck_brief"] = await run_in_threadpool(llm_service.build_deck_brief, deck["slides"])
+        slide["script"] = await run_in_threadpool(_build_slide_script, deck_id, deck, slide_index)
+        slide["script_source"] = "generated"
 
     audio_path = storage.slide_audio_path(deck_id, slide_number)
     await run_in_threadpool(speech_service.synthesize_to_file, slide["script"], audio_path)
@@ -352,9 +504,6 @@ async def voice_debug(payload: dict = Body(...)):
         print(f"[SlidePilot Voice Debug] {text}", flush=True)
         logger.info("Voice recognized: %s", text)
     return {"ok": True}
-
-
-from fastapi.responses import HTMLResponse
 
 
 @app.get("/api/test", response_class=HTMLResponse)

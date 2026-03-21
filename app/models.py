@@ -5,6 +5,10 @@ class QnARequest(BaseModel):
     question: str
 
 
+class SlideScriptRequest(BaseModel):
+    script: str
+
+
 class SlideInfo(BaseModel):
     slide_number: int
     title: str
@@ -13,6 +17,7 @@ class SlideInfo(BaseModel):
     image_url: str | None = None
     script: str | None = None
     audio_url: str | None = None
+    script_source: str | None = None
 
 
 class DeckResponse(BaseModel):
@@ -27,6 +32,8 @@ class DeckResponse(BaseModel):
     conclusion_audio_url: str | None = None
     closing_statement: str | None = None
     closing_audio_url: str | None = None
+    review_ready: bool = False
+    finalized: bool = False
 
 
 class DeckQnAResponse(BaseModel):

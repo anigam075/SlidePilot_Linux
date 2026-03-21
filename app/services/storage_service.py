@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
@@ -57,3 +58,9 @@ class StorageService:
         if not path.exists():
             return None
         return json.loads(path.read_text(encoding="utf-8"))
+
+    def clear_workspace(self) -> None:
+        for directory in (self.uploads_dir, self.decks_dir, self.audio_dir, self.images_dir):
+            if directory.exists():
+                shutil.rmtree(directory)
+            directory.mkdir(parents=True, exist_ok=True)

@@ -19,7 +19,7 @@ uploadForm.addEventListener("submit", async (event) => {
   formData.append("file", file);
 
   try {
-    setStatus("Uploading and extracting slides...");
+    setStatus("Uploading deck and extracting slides...");
     const uploadResponse = await fetch("/api/upload", {
       method: "POST",
       body: formData,
@@ -30,16 +30,8 @@ uploadForm.addEventListener("submit", async (event) => {
     }
     const deck = await uploadResponse.json();
 
-    setStatus("Engines on. Prepping all slide narrations for smooth playback...");
-    const prepareResponse = await fetch(`/api/decks/${deck.deck_id}/prepare`, {
-      method: "POST",
-    });
-    if (!prepareResponse.ok) {
-      const err = await prepareResponse.json();
-      throw new Error(err.detail || "Narration preparation failed");
-    }
-
-    window.location.href = `/player/${encodeURIComponent(deck.deck_id)}`;
+    setStatus("Upload complete. Opening narration review...");
+    window.location.href = `/review/${encodeURIComponent(deck.deck_id)}`;
   } catch (error) {
     setStatus(error.message || "Processing failed", true);
   }

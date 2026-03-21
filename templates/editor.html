@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>SlidePilot - Review Narration</title>
+    <link rel="stylesheet" href="/static/style.css" />
+  </head>
+  <body class="editor-page" data-deck-id="{{ deck_id }}">
+    <div class="bg-orb orb-a" aria-hidden="true"></div>
+    <div class="bg-orb orb-b" aria-hidden="true"></div>
+    <div class="bg-orb orb-c" aria-hidden="true"></div>
+
+    <main class="app-shell">
+      <section class="card editor-shell">
+        <div class="editor-topbar">
+          <div>
+            <p class="brand-pill">Narration Review</p>
+            <h2 id="editorTitle">Preparing draft narration...</h2>
+            <p class="muted" id="editorSummary">Review up to four slides at a time, refresh drafts where needed, or replace them with your own wording.</p>
+          </div>
+          <div class="editor-actions">
+            <button id="editorHomeBtn" type="button">Home</button>
+            <button id="finalizeBtn" type="button">Finalize</button>
+          </div>
+        </div>
+
+        <div id="editorStatus" class="status"></div>
+        <div id="reviewMeta" class="review-meta hidden"></div>
+        <div class="review-pagination">
+          <button id="prevPageBtn" type="button">Previous 4</button>
+          <span id="pageLabel" class="review-page-label">Page 1 of 1</span>
+          <button id="nextPageBtn" type="button">Next 4</button>
+        </div>
+        <div id="slidesReview" class="slides-review"></div>
+      </section>
+    </main>
+
+    <script src="/static/editor.js"></script>
+  </body>
+</html>
